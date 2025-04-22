@@ -29,6 +29,7 @@ export const authOptions: NextAuthOptions = {
       session.accessToken = token.accessToken as string | undefined;
       return session;
     },
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     async redirect({ url, baseUrl }) {
       return `${baseUrl}/twitter`;
     },

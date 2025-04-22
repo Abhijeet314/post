@@ -1,5 +1,15 @@
 import mongoose from 'mongoose';
 
+// Define interface for engagement data
+interface Engagement {
+  views: number;
+  likes: number;
+  reposts: number;
+  comments: number;
+  engagementRate?: number;
+  engagementScore?: number;
+}
+
 const twitterSchema = new mongoose.Schema({
   content: {
     type: String,
@@ -71,7 +81,7 @@ const twitterSchema = new mongoose.Schema({
 
 
 twitterSchema.pre('save', function(next) {
-  const { views, likes, reposts, comments } : any = this.engagement;
+  const { views, likes, reposts, comments }: Engagement = this.engagement as Engagement;
   const totalEngagement = likes + (reposts * 2) + (comments * 3);
   
   // Calculate engagement rate (based on views instead of followers)

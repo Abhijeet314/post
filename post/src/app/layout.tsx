@@ -4,7 +4,6 @@ import { Inter } from "next/font/google"
 import "./globals.css"
 import { ThemeProvider } from "@/components/ui/theme-provider"
 import Sidebar from "@/components/Sidebar"
-import TopNav from "@/components/Navbar"
 import { Providers } from "./providers"
 
 const inter = Inter({ subsets: ["latin"] })
@@ -24,10 +23,11 @@ export default function RootLayout({
       <body className={inter.className}>
       <Providers>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          <TopNav />
-          <Sidebar />
-          <div className="ml-64">
-            {children}
+          <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-900">
+            <Sidebar />
+            <div className="flex-1 overflow-auto">
+              {children}
+            </div>
           </div>
         </ThemeProvider>
       </Providers>

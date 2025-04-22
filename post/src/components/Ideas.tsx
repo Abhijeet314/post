@@ -1,27 +1,40 @@
 "use client";
 import React, { useState } from 'react';
+import { useSession} from 'next-auth/react';
+import { exportToPDF, exportToJSON, exportToText } from '@/lib/exportUtils';
+import Image from 'next/image';
 
 function Ideas() {
+  const { data: session } = useSession();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [formData, setFormData] = useState({
     tone: 'professional',
     numberOfIdeas: 5,
     platform: 'twitter',
-    productDescription: ''
+    productDescription: '',
+    contentType: 'text' // 'text' or 'image'
   });
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isPosting, setIsPosting] = useState<string | null>(null);
+  const [isGeneratingImage, setIsGeneratingImage] = useState<string | null>(null);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportFormat, setExportFormat] = useState<string>('pdf');
+  const [exportSuccess, setExportSuccess] = useState(false);
+  
   interface Idea {
     id: string;
     content: string;
+    imageUrl?: string;
   }
   const [generatedIdeas, setGeneratedIdeas] = useState<Idea[]>([]);
   const [error, setError] = useState('');
-  const [copiedId, setCopiedId] = useState(null);
+  const [postSuccess, setPostSuccess] = useState<string | null>(null);
+  const [postError, setPostError] = useState<string | null>(null);
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
 
-  const handleFormChange = (e : any) => {
+  const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
@@ -29,7 +42,7 @@ function Ideas() {
     }));
   };
 
-  const handleFormSubmit = async (e : any) => {
+  const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
@@ -61,12 +74,156 @@ function Ideas() {
     }
   };
 
-  // const handleCopy = (id: string, content: string) => {
-  //   navigator.clipboard.writeText(content);
-  //   setCopiedId(id );
-  //   setTimeout(() => setCopiedId(null), 2000);
-  // };
+  const generateImage = async (id: string, content: string) => {
+    setIsGeneratingImage(id);
+    
+    try {
+      // Call the API endpoint instead of using the service directly
+      const response = await fetch('/api/generate-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ content, platform: formData.platform })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate image');
+      }
+      
+      const data = await response.json();
+      const imageUrl = data.imageUrl;
+      
+      if (!imageUrl) {
+        throw new Error('Failed to generate image');
+      }
+      
+      // Update the idea with the image URL
+      setGeneratedIdeas(prevIdeas => 
+        prevIdeas.map(idea => 
+          idea.id === id ? { ...idea, imageUrl } : idea
+        )
+      );
+      
+      return imageUrl;
+    } catch (err) {
+      console.error('Error generating image:', err);
+      setPostError(err instanceof Error ? err.message : 'Failed to generate image');
+      setTimeout(() => setPostError(null), 3000);
+      return null;
+    } finally {
+      setIsGeneratingImage(null);
+    }
+  };
 
+  const handlePost = async (id: string, content: string, imageUrl?: string) => {
+    if (!session) {
+      // Show sign-in modal or message
+      setPostError("Please sign in with Twitter to post this content");
+      setTimeout(() => setPostError(null), 3000);
+      return;
+    }
+
+    setIsPosting(id);
+    setPostSuccess(null);
+    setPostError(null);
+    
+    try {
+      // If the content type is 'image' and no image has been generated yet, generate one
+      let finalImageUrl: string | undefined = imageUrl;
+      if (formData.contentType === 'image' && !finalImageUrl) {
+        const generatedImageUrl = await generateImage(id, content);
+        finalImageUrl = generatedImageUrl || undefined;
+        if (!finalImageUrl) {
+          throw new Error('Failed to generate image for post');
+        }
+      }
+      
+      // Prepare the post data based on whether we have an image or not
+      const postData = finalImageUrl 
+        ? { text: content, image: finalImageUrl } 
+        : { text: content };
+      
+      const response = await fetch('/api/post/twitter', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(postData)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to post to Twitter');
+      }
+
+      const data = await response.json();
+      
+      // Show warning if the tweet was posted without the image
+      if (data.warning) {
+        setPostSuccess(id);
+        setPostError(data.warning); // Show warning message about image limitations
+        setTimeout(() => {
+          setPostSuccess(null);
+          setPostError(null);
+        }, 5000);
+      } else {
+        setPostSuccess(id);
+        setTimeout(() => setPostSuccess(null), 3000);
+      }
+    } catch (err) {
+      setPostError(err instanceof Error ? err.message : 'Failed to post to Twitter');
+      setTimeout(() => setPostError(null), 3000);
+    } finally {
+      setIsPosting(null);
+    }
+  };
+
+  const handleExport = () => {
+    setExportLoading(true);
+    
+    try {
+      // Create a better title with platform and date
+      const platformLabel = formData.platform.charAt(0).toUpperCase() + formData.platform.slice(1);
+      const title = `${platformLabel} Content Ideas - ${formData.tone} tone`;
+      
+      // Enhance ideas with additional metadata for better formatting
+      const exportItems = generatedIdeas.map((idea, index) => ({
+        ...idea,
+        index: index + 1,
+        platform: formData.platform,
+        tone: formData.tone,
+        type: 'Content Idea',
+        // Add a category based on tone
+        category: formData.contentType === 'image' ? 'Visual Content' : 'Text Content'
+      }));
+      
+      switch (exportFormat) {
+        case 'pdf':
+          exportToPDF(exportItems, title);
+          break;
+        case 'json':
+          exportToJSON(exportItems, title);
+          break;
+        case 'text':
+          exportToText(exportItems, title);
+          break;
+        default:
+          exportToPDF(exportItems, title);
+      }
+      
+      // Show success message
+      setExportSuccess(true);
+      setTimeout(() => setExportSuccess(false), 3000);
+    } catch (err) {
+      console.error('Export error:', err);
+      setError('Failed to export content');
+      setTimeout(() => setError(''), 3000);
+    } finally {
+      setExportLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -100,132 +257,152 @@ function Ideas() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4" role="alert">
+          <div className="bg-red-50 border border-red-200 text-red-600 rounded-md p-4 mb-6">
             {error}
+          </div>
+        )}
+        
+        {exportSuccess && (
+          <div className="bg-green-50 border border-green-200 text-green-600 rounded-md p-4 mb-6 flex items-center">
+            <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            Content exported successfully!
           </div>
         )}
 
         {isLoading ? (
-          <div className="w-full">
-            <div className="text-center mb-6">
-              <div className="inline-flex items-center px-4 py-2 bg-blue-100 text-blue-800 rounded-full">
-                <svg 
-                  className="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-600" 
-                  xmlns="http://www.w3.org/2000/svg" 
-                  fill="none" 
-                  viewBox="0 0 24 24"
-                >
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Generating creative ideas...
-              </div>
-            </div>
-            
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="bg-white rounded-lg shadow-md animate-pulse">
-                  <div className="h-10 bg-gray-200 rounded-t-lg" />
-                  <div className="p-5 space-y-3">
-                    {Array.from({ length: 4 }).map((_, j) => (
-                      <div 
-                        key={j} 
-                        className={`h-3 bg-gray-200 rounded ${j === 1 ? 'w-5/6' : j === 2 ? 'w-4/6' : j === 3 ? 'w-3/4' : 'w-full'}`} 
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : generatedIdeas.length > 0 ? (
-          <div>
-            <div className="mb-6 flex items-center">
-              <h2 className="text-xl font-semibold text-gray-800 mr-2">Generated Ideas</h2>
-              <span className="px-3 py-1 text-sm rounded-full capitalize bg-blue-100 text-blue-800 mr-2">
-                {formData.platform}
-              </span>
-              <span className="px-3 py-1 text-sm rounded-full capitalize bg-purple-100 text-purple-800">
-                {formData.tone} tone
-              </span>
-            </div>
-            
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {generatedIdeas.map((idea) => {
-                return (
-                  <div key={idea.id} className={`rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden border border-gray-200 ${copiedId === idea.id ? 'bg-green-50' : 'bg-white'}`}>
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <button
-                          // onClick={() => handleCopy(idea.id, idea.content)}
-                          className={`text-sm font-medium flex items-center ${copiedId === idea.id ? 'text-green-600' : 'text-blue-600 hover:text-blue-800'}`}
-                          type="button"
-                        >
-                          {copiedId === idea.id ? 'Copied!' : 'Copy'}
-                        </button>
-                      </div>
-                    </div>
-                    
-                    <div className="p-5 bg-white">
-                      <p className="text-gray-700 whitespace-pre-line">{idea.content}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+          <div className="flex justify-center items-center py-20">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+            <p className="ml-3 text-lg text-gray-700">Generating ideas...</p>
           </div>
         ) : (
-          <div className="text-center py-12 bg-white rounded-lg shadow-sm border border-gray-200">
-            <svg
-              className="mx-auto h-16 w-16 text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-              />
-            </svg>
-            <h3 className="mt-4 text-lg font-medium text-gray-900">No ideas generated yet</h3>
-            <p className="mt-2 text-sm text-gray-500 max-w-md mx-auto">
-              Get creative marketing ideas customized for your product and target platform in seconds.
-            </p>
-            <div className="mt-6">
-              <button
-                onClick={toggleSidebar}
-                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
-                type="button"
-              >
-                <svg 
-                  className="-ml-1 mr-2 h-5 w-5" 
-                  fill="none" 
-                  viewBox="0 0 24 24" 
-                  stroke="currentColor"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                Generate Ideas
-              </button>
-            </div>
-          </div>
+          <>
+            {generatedIdeas.length > 0 && (
+              <div className="mb-8">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-semibold text-gray-800">Generated Ideas</h2>
+                  
+                  <div className="flex items-center">
+                    <select
+                      value={exportFormat}
+                      onChange={(e) => setExportFormat(e.target.value)}
+                      className="mr-2 p-2 border border-gray-300 rounded-md text-sm"
+                    >
+                      <option value="pdf">PDF Format</option>
+                      <option value="json">JSON Format</option>
+                      <option value="text">Text Format</option>
+                    </select>
+                    
+                    <button
+                      onClick={handleExport}
+                      disabled={exportLoading}
+                      className="inline-flex items-center px-4 py-2 bg-indigo-600 border border-transparent rounded-md font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-400"
+                    >
+                      {exportLoading ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Exporting...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                          Export
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid gap-6 md:grid-cols-1">
+                  {generatedIdeas.map(idea => (
+                    <div key={idea.id} className="bg-white overflow-hidden shadow rounded-lg">
+                      <div className="px-4 py-5 sm:p-6">
+                        <div className="flex items-start justify-between">
+                          <p className="text-lg font-medium text-gray-900">{idea.content}</p>
+                          <div className="flex items-center ml-4">
+                            {formData.contentType === 'image' && !idea.imageUrl && (
+                              <button
+                                onClick={() => generateImage(idea.id, idea.content)}
+                                disabled={isGeneratingImage === idea.id}
+                                className="mr-2 p-2 text-blue-600 hover:text-blue-800 rounded-full hover:bg-blue-50"
+                              >
+                                {isGeneratingImage === idea.id ? (
+                                  <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                  </svg>
+                                ) : (
+                                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                  </svg>
+                                )}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handlePost(idea.id, idea.content, idea.imageUrl)}
+                              disabled={isPosting === idea.id}
+                              className="p-2 text-green-600 hover:text-green-800 rounded-full hover:bg-green-50"
+                            >
+                              {isPosting === idea.id ? (
+                                <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                              ) : (
+                                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                                </svg>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                        
+                        {postSuccess === idea.id && (
+                          <div className="mt-2 text-sm text-green-600">
+                            Content posted successfully!
+                          </div>
+                        )}
+                        
+                        {postError && isPosting === idea.id && (
+                          <div className="mt-2 text-sm text-red-600">
+                            {postError}
+                          </div>
+                        )}
+                        
+                        {idea.imageUrl && (
+                          <div className="mt-4">
+                            <Image 
+                              src={idea.imageUrl} 
+                              alt="Generated image for content" 
+                              width={800}
+                              height={600}
+                              className="w-full rounded-lg shadow-md max-h-96 object-contain mx-auto" 
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </main>
 
-      <div 
-        className={`fixed top-0 right-0 h-full w-80 bg-white shadow-lg transform transition-transform duration-300 z-50 ${
-          sidebarOpen ? 'translate-x-0' : 'translate-x-full'
-        }`}
-      >
-        <div className="flex flex-col h-full">
-          <div className="flex justify-between items-center p-4 border-b">
-            <h2 className="text-lg font-semibold">Generate Content Ideas</h2>
+      <div className={`fixed inset-y-0 right-0 w-full md:w-96 bg-white shadow-xl transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className="h-full flex flex-col p-6 overflow-y-auto">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-semibold text-gray-800">Generate Ideas</h2>
             <button 
               onClick={toggleSidebar}
-              className="p-2 rounded-full hover:bg-gray-100"
+              className="p-2 rounded-full hover:bg-gray-200"
               type="button"
             >
               <svg 
@@ -245,8 +422,8 @@ function Ideas() {
             </button>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-4">
-            <form onSubmit={handleFormSubmit}>
+          <div className="flex-1">
+            <form onSubmit={handleFormSubmit} className="space-y-6">
               <div className="mb-4">
                 <label htmlFor="tone" className="block mb-2 font-medium">Tone</label>
                 <select
@@ -259,28 +436,31 @@ function Ideas() {
                 >
                   <option value="professional">Professional</option>
                   <option value="casual">Casual</option>
-                  <option value="sarcastic">Sarcastic</option>
                   <option value="humorous">Humorous</option>
+                  <option value="inspirational">Inspirational</option>
+                  <option value="educational">Educational</option>
                 </select>
               </div>
               
               <div className="mb-4">
                 <label htmlFor="numberOfIdeas" className="block mb-2 font-medium">Number of Ideas</label>
-                <input
-                  type="number"
+                <select
                   id="numberOfIdeas"
                   name="numberOfIdeas"
-                  min="1"
-                  max="10"
                   value={formData.numberOfIdeas}
                   onChange={handleFormChange}
                   className="w-full p-2 border rounded"
                   required
-                />
+                >
+                  <option value="3">3</option>
+                  <option value="5">5</option>
+                  <option value="7">7</option>
+                  <option value="10">10</option>
+                </select>
               </div>
               
               <div className="mb-4">
-                <label htmlFor="platform" className="block mb-2 font-medium">Target Platform</label>
+                <label htmlFor="platform" className="block mb-2 font-medium">Platform</label>
                 <select
                   id="platform"
                   name="platform"
@@ -292,8 +472,28 @@ function Ideas() {
                   <option value="twitter">Twitter</option>
                   <option value="linkedin">LinkedIn</option>
                   <option value="instagram">Instagram</option>
-                  <option value="youtube">YouTube</option>
+                  <option value="facebook">Facebook</option>
                 </select>
+              </div>
+              
+              <div className="mb-4">
+                <label htmlFor="contentType" className="block mb-2 font-medium">Content Type</label>
+                <select
+                  id="contentType"
+                  name="contentType"
+                  value={formData.contentType}
+                  onChange={handleFormChange}
+                  className="w-full p-2 border rounded"
+                  required
+                >
+                  <option value="text">Text Only</option>
+                  <option value="image">Image + Text</option>
+                </select>
+                {formData.contentType === 'image' && (
+                  <p className="mt-2 text-xs text-yellow-600">
+                    Note: Due to Twitter API limitations, images may not appear in the actual tweet. Images will still be generated for preview purposes.
+                  </p>
+                )}
               </div>
               
               <div className="mb-4">

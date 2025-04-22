@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import Content from '@/models/Content';
 import { generateIdeasWithAI } from '@/lib/aiservice';
+import mongoose from 'mongoose';
+
+// Define interfaces for content document structure
+interface ContentDocument {
+  contentType?: string;
+  marketingPatterns?: string[];
+  format?: {
+    [key: string]: boolean | number;
+  };
+  content?: string;
+  _id?: mongoose.Types.ObjectId;
+  [key: string]: string | string[] | boolean | number | object | mongoose.Types.ObjectId | undefined; // More specific type instead of any
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,7 +36,7 @@ export async function POST(req: NextRequest) {
       'engagement.engagementScore': -1 
     })
     .limit(20)
-    .lean();
+    .lean() as ContentDocument[];
 
     interface PlatformData {
       contentTypes: { [key: string]: number };
@@ -45,16 +58,18 @@ export async function POST(req: NextRequest) {
     
     // Only process content data if we have relevant examples
     if (relevantContent.length > 0) {
-      relevantContent.forEach((content : any) => {
+      relevantContent.forEach((content) => {
         // Count content types
-        if (platformSpecificData.contentTypes[content.contentType]) {
-          platformSpecificData.contentTypes[content.contentType]++;
-        } else {
-          platformSpecificData.contentTypes[content.contentType] = 1;
+        if (content.contentType) {
+          if (platformSpecificData.contentTypes[content.contentType]) {
+            platformSpecificData.contentTypes[content.contentType]++;
+          } else {
+            platformSpecificData.contentTypes[content.contentType] = 1;
+          }
         }
         
         // Count marketing patterns
-        content.marketingPatterns.forEach((pattern : any) => {
+        content.marketingPatterns?.forEach((pattern: string) => {
           if (platformSpecificData.marketingPatterns[pattern]) {
             platformSpecificData.marketingPatterns[pattern]++;
           } else {
@@ -63,18 +78,22 @@ export async function POST(req: NextRequest) {
         });
         
         // Count format details
-        Object.entries(content.format).forEach(([key, value]) => {
-          if (typeof value === 'boolean' && value === true) {
-            if (platformSpecificData.formatPatterns[key]) {
-              platformSpecificData.formatPatterns[key]++;
-            } else {
-              platformSpecificData.formatPatterns[key] = 1;
+        if (content.format) {
+          Object.entries(content.format).forEach(([key, value]) => {
+            if (typeof value === 'boolean' && value === true) {
+              if (platformSpecificData.formatPatterns[key]) {
+                platformSpecificData.formatPatterns[key]++;
+              } else {
+                platformSpecificData.formatPatterns[key] = 1;
+              }
             }
-          }
-        });
+          });
+        }
         
         // Calculate average post length
-        totalLength += content.content.length;
+        if (content.content) {
+          totalLength += content.content.length;
+        }
       });
       
       platformSpecificData.avgPostLength = Math.round(totalLength / relevantContent.length);
@@ -88,7 +107,7 @@ export async function POST(req: NextRequest) {
 
     // Get top performing examples (up to 3) or provide empty array if none
     const topExamples = relevantContent.length > 0 
-      ? relevantContent.slice(0, 3).map((c: any) => c.content)
+      ? relevantContent.slice(0, 3).map((c) => c.content || '')
       : [];
 
     // Always use the AI generation, even if there's no database content to learn from

@@ -1,8 +1,7 @@
 "use client"
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown"
-import Image from "next/image"
-import { Bell, ChevronRight } from "lucide-react"
+import { ChevronRight } from "lucide-react"
 import Link from "next/link"
 import { ThemeToggle } from "./ui/theme-toggle"
 
