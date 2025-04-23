@@ -20,6 +20,7 @@ export default function WeekPage() {
     if (savedPlan) {
       try {
         const plan = JSON.parse(savedPlan);
+        console.log(_plan);
         setMarketingPlan(plan);
         
         // Find the specific week
@@ -39,6 +40,7 @@ export default function WeekPage() {
       router.push('/ideas');
     }
   }, [weekId, router]);
+  
   
   if (!week) {
     return (

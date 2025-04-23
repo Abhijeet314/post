@@ -17,8 +17,8 @@ interface Idea {
 function Page() {
     const { data: session } = useSession()
     const [_tweetText, setTweetText] = useState('')
-    const [posting, setPosting] = useState(false)
-    const [postResult, setPostResult] = useState<PostResult | null>(null)
+    const [postingIdeas, setPostingIdeas] = useState<Record<string, boolean>>({})
+    const [postResults, setPostResults] = useState<Record<string, PostResult>>({})
     const [formOpen, setFormOpen] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
     const [generatedIdeas, setGeneratedIdeas] = useState<Idea[]>([])
@@ -44,6 +44,7 @@ function Page() {
         setIsLoading(true);
         setError('');
         setGeneratedIdeas([]);
+        console.log(_tweetText);
 
         try {
             const response = await fetch('/api/generate-ideas', {
@@ -68,11 +69,14 @@ function Page() {
         }
     };
 
-    const postTweet = async (text: string) => {
+    const postTweet = async (text: string, ideaId: string) => {
         if (!text.trim()) return
         
+        setTweetText(text)
+        
         try {
-            setPosting(true)
+            setPostingIdeas(prev => ({ ...prev, [ideaId]: true }))
+            
             const response = await fetch('/api/post/twitter', {
                 method: 'POST',
                 headers: {
@@ -84,15 +88,24 @@ function Page() {
             const data = await response.json()
             
             if (response.ok) {
-                setPostResult({ success: true, message: 'Tweet posted successfully!' })
+                setPostResults(prev => ({ 
+                    ...prev, 
+                    [ideaId]: { success: true, message: 'Tweet posted successfully!' }
+                }))
                 setTweetText('')
             } else {
-                setPostResult({ success: false, message: data.error || 'Failed to post tweet' })
+                setPostResults(prev => ({ 
+                    ...prev, 
+                    [ideaId]: { success: false, message: data.error || 'Failed to post tweet' }
+                }))
             }
         } catch (error) {
-            setPostResult({ success: false, message: 'An error occurred while posting' })
+            setPostResults(prev => ({ 
+                ...prev, 
+                [ideaId]: { success: false, message: 'went wrong' + error }
+            }))
         } finally {
-            setPosting(false)
+            setPostingIdeas(prev => ({ ...prev, [ideaId]: false }))
         }
     }
 
@@ -198,12 +211,12 @@ function Page() {
                                     <div className="flex flex-wrap gap-2">
                                         <button
                                             onClick={() => {
-                                                postTweet(idea.content);
+                                                postTweet(idea.content, idea.id);
                                             }}
-                                            disabled={posting}
+                                            disabled={postingIdeas[idea.id]}
                                             className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded text-sm flex items-center gap-1 transition-colors"
                                         >
-                                            {posting ? (
+                                            {postingIdeas[idea.id] ? (
                                                 <>
                                                     <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -233,9 +246,9 @@ function Page() {
                                     </div>
                                     
                                     {/* Success/error messages */}
-                                    {postResult && (
-                                        <div className={`mt-3 p-2 ${postResult.success ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800'} rounded-md text-sm flex items-center`}>
-                                            {postResult.success ? (
+                                    {postResults[idea.id] && (
+                                        <div className={`mt-3 p-2 ${postResults[idea.id].success ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800'} rounded-md text-sm flex items-center`}>
+                                            {postResults[idea.id].success ? (
                                                 <svg className="w-4 h-4 mr-2" viewBox="0 0 20 20" fill="currentColor">
                                                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                                                 </svg>
@@ -244,7 +257,7 @@ function Page() {
                                                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                                                 </svg>
                                             )}
-                                            {postResult.message}
+                                            {postResults[idea.id].message}
                                         </div>
                                     )}
                                 </div>

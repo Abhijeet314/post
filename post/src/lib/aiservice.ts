@@ -254,8 +254,7 @@ function getPlatformGuidelines(platform: string): string {
 export function generateFallbackIdeas({
   tone,
   numberOfIdeas,
-  platform,
-  productDescription
+  platform
 }: Omit<GenerateIdeasParams, 'platformData' | 'topExamples'>) {
   const templates = {
     professional: [
@@ -604,6 +603,23 @@ export async function generateMarketingPlanWithAI(params: MarketingPlanParams): 
       const activityCount = week.days.reduce((sum, day) => sum + day.activities.length, 0);
       if (activityCount < 10) {
         console.log(`Week ${week.weekNumber} has only ${activityCount} activities. Generating detailed content...`);
+        
+        // Option 1: Use the __generateActivitiesWithAI function for a single week
+        // This demonstrates how we could use the function for specific weeks if needed
+        if (week.weekNumber === 1 && activityCount < 5) {
+          console.log("Using __generateActivitiesWithAI for Week 1 due to very few activities");
+          const partialPlan = {
+            title: marketingPlan.title,
+            overview: marketingPlan.overview,
+            weeks: [week]
+          };
+          const enhancedPlan = await __generateActivitiesWithAI(params, partialPlan);
+          // Copy the enhanced week back to our main plan
+          if (enhancedPlan.weeks[0].days.length > 0) {
+            week.days = enhancedPlan.weeks[0].days;
+            continue; // Skip the standard generation for this week
+          }
+        }
         
         // Create a targeted prompt to generate just this week's activities
         const weekPrompt = `
@@ -961,6 +977,19 @@ function parseWeekActivities(text: string, params: MarketingPlanParams, __goals:
   const days: MarketingPlanDay[] = [];
   const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
   
+  // Use the goals to determine activity focus areas
+  const goalKeywords: string[] = [];
+  __goals.forEach(goal => {
+    // Extract important keywords from each goal
+    const words = goal.toLowerCase().split(' ');
+    // Filter for meaningful words (nouns, verbs)
+    const meaningfulWords = words.filter(word => 
+      word.length > 4 && 
+      !['with', 'from', 'that', 'this', 'these', 'those', 'will', 'have', 'been'].includes(word)
+    );
+    goalKeywords.push(...meaningfulWords);
+  });
+  
   // Find day sections in the text
   dayNames.forEach(dayName => {
     const dayRegex = new RegExp(`${dayName}:?\\s*`, 'i');
@@ -1054,6 +1083,23 @@ function parseWeekActivities(text: string, params: MarketingPlanParams, __goals:
           // Assign a default platform if none detected
           if (!platform && params.platforms.length > 0) {
             platform = params.platforms[0];
+          }
+        }
+        
+        // Use goal keywords to enhance description if needed
+        if (description.length < 100 && goalKeywords.length > 0) {
+          // Find which goal keywords might be relevant to this activity
+          const relevantKeywords = goalKeywords.filter(keyword => 
+            title.toLowerCase().includes(keyword) || description.toLowerCase().includes(keyword)
+          );
+          
+          // If we have relevant keywords, use them to enhance the description
+          if (relevantKeywords.length > 0) {
+            const keywordPhrase = relevantKeywords.join(', ');
+            // Only add if we're not repeating ourselves
+            if (!description.toLowerCase().includes(keywordPhrase.toLowerCase())) {
+              description += ` This activity directly supports our goals related to ${keywordPhrase}.`;
+            }
           }
         }
         

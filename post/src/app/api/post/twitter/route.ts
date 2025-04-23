@@ -1,6 +1,5 @@
-import { getServerSession } from "next-auth/next"
 import { NextResponse } from "next/server"
-import { authOptions } from "@/lib/auth"
+import { getServerAuthSession } from "@/lib/auth"
 import { Session } from "next-auth"
 
 // Extend the Session type to include accessToken
@@ -10,7 +9,7 @@ interface TwitterSession extends Session {
 
 export async function POST(req: Request) {
   try {
-    const session = await getServerSession(authOptions) as TwitterSession
+    const session = await getServerAuthSession() as unknown as TwitterSession
     
     if (!session?.accessToken) {
       return NextResponse.json(

@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { MarketingPlan, MarketingPlanWeek } from '@/lib/aiservice';
+import { MarketingPlan } from '@/lib/aiservice';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 
@@ -77,6 +77,9 @@ function MarketingPlannerPage() {
 
       // Close the sidebar after successful generation
       setSidebarOpen(false);
+      console.log(_toggleSidebar);
+      console.log(_toggleWeek);
+      console.log(_toggleDay);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -341,6 +344,7 @@ function MarketingPlannerPage() {
     
     try {
       setExportLoading(true);
+      console.log(_exportLoading);
       
       // Get any saved generated content from localStorage
       const savedContents = JSON.parse(localStorage.getItem('generatedContents') || '{}');

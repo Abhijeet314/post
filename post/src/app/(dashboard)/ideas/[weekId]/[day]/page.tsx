@@ -22,6 +22,7 @@ export default function DayPage() {
     if (savedPlan) {
       try {
         const plan = JSON.parse(savedPlan);
+        console.log(_plan);
         setMarketingPlan(plan);
         
         // Find the specific week
@@ -53,6 +54,8 @@ export default function DayPage() {
       router.push('/ideas');
     }
   }, [weekId, dayName, router]);
+  
+  // Use plan data to determine if we have a properly loaded plan
   
   if (!week || !day) {
     return (
